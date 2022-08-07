@@ -210,3 +210,66 @@ exports.ResetPassword = async (req, res, next) => {
         next(err);
         }
 }
+
+
+//create new user
+exports.UpdateUserInfo = async (req, res, next) => {
+    try {
+        console.log("Updating user...");
+        //use the following items to create a new user
+        username = req.body.username;
+        email = req.body.email;
+        mobile = req.body.mobile;
+        postcode = req.body.postcode;         
+        //start db connection
+        db.getConnection ( async (err, connection)=> 
+        {
+            if (err) throw (err)
+            //sql search query
+            const sqlSearch = "Select * from users where username = ?"
+            const search_query = mysql.format(sqlSearch, [username])
+
+            //query db
+            connection.query (search_query, async (err, result) => 
+            {
+                connection.release()                
+                if (err) throw (err)
+                //if no results
+                if (result.length == 0) 
+                {
+                    console.log("-> User does not exist")
+                    res.status(404).send("User does not exist");
+                } 
+                else 
+                {
+                    //if there is a result
+                    const hashedPassword = result[0].password
+
+                    //get the hashedPassword from result
+                                          
+                        connection.query ('Update users set email = ?, mobile = ? , postcode = ? where username = ?', [email, mobile, postcode , username], async (err, result) => 
+                        {
+                            connection.release()                            
+                            if (err) throw (err)
+                            //if no results
+                            if (result.length == 0) 
+                            {
+                                console.log("-> Error updating user.")
+                                res.status(404).send("Error updating user");
+                            } 
+                            else 
+                            {
+                                res.status(200).send("User info updated seccessfully");
+                            }
+                        }) 
+                }
+            })
+        }) 
+                
+    } catch (err) {
+        if (!err.statusCode) {
+          err.statusCode = 500;
+        }
+        next(err);
+      }
+}
