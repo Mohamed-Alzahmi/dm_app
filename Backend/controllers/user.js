@@ -13,128 +13,129 @@ const db = mysql.createPool({
     password: config.password,
     database: config.database
 });
+// master function to run an sql command 
+// no need to repeat the code 
+// applied in any DB call 
 
+selectAllUsers = (query) => {
+    return new Promise((resolve, reject) => {
+        const formatted_query = mysql.format(query);
+        db.query(formatted_query, (error, results) => {
+            if (error) {
+                return reject(error);
+            }
+            return resolve(results);
+        });
+    });
+};
+
+runDBCommand = (query) => {
+    return new Promise((resolve, reject) => {
+        console.log(query)
+        db.query(query, (error, results) => {
+            if (error) {
+                return reject(error);
+            }
+            return resolve(results);
+        });
+    });
+};
 //create new user
 exports.createUser = async (req, res, next) => {
     try {
         console.log("creating user...");
         //use the following items to create a new user
         username = req.body.username;
-        password = await bcrypt.hash(req.body.password,10); //use bcrypt to encrypt the passwords, can add password salting later for more secure login
+        password = await bcrypt.hash(req.body.password, 10); //use bcrypt to encrypt the passwords, can add password salting later for more secure login
         email = req.body.email;
         mobile = req.body.mobile;
         postcode = req.body.postcode;
+        console.log(req.body)
         const permission = 0; //admin is 1, user is 0
         const searchradius = 100; //default search radius (km)
         const active = 1; //user is active (1)
-
-        //establish connection to db
-        db.getConnection((err, connection) => 
-        {
-            if (err) throw (err)
-
-            //sql search query
-            const sqlSearch = "SELECT * FROM users WHERE username = ?"
-            const search_query = mysql.format(sqlSearch,[username])
-
+        // the function accepts query and paramters 
+        // const sqlAllUsers = "SELECT * FROM users";
+        // const resultAllUsers = await selectAllUsers(sqlAllUsers) 
+        // console.log(resultAllUsers.length) 
+        const sqlSearch = "SELECT * FROM users WHERE username = ?";
+        const params = [username]
+        const formatted_query = mysql.format(sqlSearch, params);
+        const result = await runDBCommand(formatted_query);
+        console.log(result.length)
+        if (result.length != 0) {
+            console.log("-> User already exists")
+            res.status(404).send("User already exists");
+        }
+        else {
             //sql insert query
             const sqlInsert = "INSERT INTO users (username, password, email, mobile, permission, postcode, searchradius, active) VALUES (?,?,?,?,?,?,?,?)"
-            const insert_query = mysql.format(sqlInsert,[username, password, email, mobile, permission, postcode, searchradius, active])
-            //start search query
-            connection.query (search_query, (err, result) => 
-            {
-                if (err) throw (err)
-                console.log("-> Search Results")
-                console.log(result.length)
-                if (result.length != 0) 
-                {
-                    connection.release()
-                    console.log("-> User already exists")
-                    res.status(404).send("User already exists");
-                } 
-                else 
-                {
-                    //if the user doesn't exist, insert new user
-                    connection.query (insert_query, (err, result)=> 
-                    {
-                        connection.release()
-                        if (err) throw (err)
-                        console.log ("--> Created new User")
-                        console.log(result.insertId)
-                        res.status(200).send("User created successfully");
-                    })
-                }
-            })
-        })
-    } catch (err) {
+            const params = [username, password, email, mobile, permission, postcode, searchradius, active]
+            const formatted_query = mysql.format(sqlInsert, params);
+            console.log(formatted_query)
+            const resultInsertUser = await runDBCommand(formatted_query);
+            if (resultInsertUser.length != 0) {
+                console.log("--> Created new User")
+                console.log(resultInsertUser.insertId)
+                res.status(200).send("User created successfully");
+            }
+            else {
+                res.status(404).send("User not created!");
+            }
+        }
+    }
+    catch (err) {
         if (!err.statusCode) {
-          err.statusCode = 500;
+            err.statusCode = 500;
         }
         next(err);
-      }
+    }
 }
-
 //log in
 exports.Login = async (req, res, next) => {
-try {
-     //user details
-     username = req.body.username;
-     password = req.body.password;
-     //start db connection
-     db.getConnection ( async (err, connection)=> 
-     {
-         if (err) throw (err)
-         //sql search query
-         const sqlSearch = "Select * from users where username = ?"
-         const search_query = mysql.format(sqlSearch, [username])
- 
-         //query db
-         connection.query (search_query, async (err, result) => 
-         {
-             connection.release()
-             
-             
-             if (err) throw (err)
-             //if no results
-             if (result.length == 0) 
-             {
-                 console.log("-> User does not exist")
-                 res.status(404).send("Username does not exist");
-             } 
-             else 
-             {
-                 //if there is a result
-                 const hashedPassword = result[0].password
- 
-                 //get the hashedPassword from result
-                 if (await bcrypt.compare(password, hashedPassword)) 
-                 {
-                     //generate access token
-                     console.log("--> Login Successful")
-                     console.log("--> Generating accessToken")
-                     //console.log(result[0].id);
-                     process.env.USERID = result[0].id;
-                     process.env.USER = username;
-                     const accessToken =  generateAccessTokens({username: username})
-                     console.log({accessToken: accessToken})
-                     //used for /routes/receipt.js
-                     res.status(200).send("Login successful, token: " + accessToken.toString());
-                 } 
-                 else 
-                 {
-                     console.log("-> Password Incorrect")
-                     res.status(403).send("Password Incorrect!");
-                 }
-             }
-         })
-     })
-     
-} catch (err) {
-    console.log("error:", err);
-    if (!err.statusCode) {
-        err.statusCode = 500;
-    }
-    next(err);
+    try {
+        //user details
+        username = req.body.username;
+        password = req.body.password;
+
+        const sqlSearch = "SELECT * FROM users WHERE username = ?";
+        const params = [username]
+        const formatted_query = mysql.format(sqlSearch, params);
+        const result = await runDBCommand(formatted_query);
+        console.log(result.length)
+        if (result.length == 0) {
+            console.log("-> User does not exist");
+            res.status(404).send("Username does not exist");
+        }
+        else {
+            //if there is a result
+            const hashedPassword = result[0].password
+            //get the hashedPassword from result
+            if (bcrypt.compare(password, hashedPassword)) {
+                //generate access token
+                console.log("--> Login Successful")
+                console.log("--> Generating accessToken")
+                //console.log(result[0].id);
+                process.env.USERID = result[0].id;
+                process.env.USER = username;
+                const accessToken = generateAccessTokens({ username: username })
+                console.log({ accessToken: accessToken })
+                //used for /routes/receipt.js
+                res.status(200).send("Login successful, token: " + accessToken.toString());
+            }
+            else {
+                console.log("-> Password Incorrect")
+                res.status(403).send("Password Incorrect!");
+            }
+
+        }
+
+    } catch (err) {
+        console.log("error:", err);
+        if (!err.statusCode) {
+            err.statusCode = 500;
+        }
+        next(err);
     }
 }
 
@@ -144,132 +145,100 @@ exports.ResetPassword = async (req, res, next) => {
         //user details
         username = req.body.username;
         password = req.body.password;
-        newpassword = await bcrypt.hash(req.body.newpassword,10);;
-        //start db connection
-        db.getConnection ( async (err, connection)=> 
-        {
-            if (err) throw (err)
-            //sql search query
-            const sqlSearch = "Select * from users where username = ?"
-            const search_query = mysql.format(sqlSearch, [username])
+        newpassword = await bcrypt.hash(req.body.newpassword, 10);
 
-            //query db
-            connection.query (search_query, async (err, result) => 
-            {
-                connection.release()
-                
-                if (err) throw (err)
-                //if no results
-                if (result.length == 0) 
-                {
-                    console.log("-> User does not exist")
-                    res.status(404).send("User does not exist");
-                } 
-                else 
-                {
-                    //if there is a result
-                    const hashedPassword = result[0].password
+        const sqlSearch = "SELECT * FROM users WHERE username = ?";
+        const params = [username]
+        const formatted_query = mysql.format(sqlSearch, params);
+        const resultSearch = await runDBCommand(formatted_query);
+        if (resultSearch.length == 0) {
+            console.log("-> User does not exist");
+            res.status(404).send("Username does not exist");
+        }
+        else {
+            //if there is a result
+            const hashedPassword = resultSearch[0].password
+            //get the hashedPassword from result
+            if (bcrypt.compare(password, hashedPassword)) {
+                //generate access token
+                console.log("--> Password reset")
 
-                    //get the hashedPassword from result
-                    if (await bcrypt.compare(password, hashedPassword)) 
-                    {
-                        //generate access token
-                        console.log("--> Password reset")
-                        //return db.execute('UPDATE users SET password = ? WHERE username = ?', [newpassword, username]);
-                        connection.query ('UPDATE users SET password = ? WHERE username = ?', [newpassword, username], async (err, result) => 
-                        {
-                            connection.release()
-                            
-                            if (err) throw (err)
-                            //if no results
-                            if (result.length == 0) 
-                            {
-                                console.log("-> Error resetting password")
-                                res.status(404).send("Error resetting password");
-                            } 
-                            else 
-                            {
-                                res.status(200).send("Password reset seccessfully");
-                            }
-                        })
-                    
-                    } 
-                    else 
-                    {
-                        console.log("-> Password Incorrect")
-                        res.status(403).send("Password Incorrect!");
-                    }
+                const sqlUpdate = "UPDATE users SET password = ? WHERE username = ?"
+                const params = [newpassword, username]
+                const formatted_query = mysql.format(sqlUpdate, params);
+                const resultUpdate = await runDBCommand(formatted_query);
+                console.log(resultUpdate);
+                if (resultUpdate.length == 0) {
+                    console.log("-> Error resetting password")
+                    res.status(404).send("Error resetting password");
                 }
-            })
-        })
+                else {
+                    res.status(200).send("Password reset seccessfully");
+                }
+
+            }
+            else {
+                console.log("-> Password Incorrect")
+                res.status(403).send("Password Incorrect!");
+            }
+        }
     } catch (err) {
         console.log("error:", err);
         if (!err.statusCode) {
             err.statusCode = 500;
         }
         next(err);
-        }
+    }
 }
-
-
-//create new user
+//update user info
 exports.UpdateUserInfo = async (req, res, next) => {
     try {
+        //user details
         console.log("Updating user...");
         //use the following items to create a new user
         username = req.body.username;
+        password = req.body.password;
         email = req.body.email;
         mobile = req.body.mobile;
-        postcode = req.body.postcode;         
-        //start db connection
-        db.getConnection ( async (err, connection)=> 
-        {
-            if (err) throw (err)
-            //sql search query
-            const sqlSearch = "Select * from users where username = ?"
-            const search_query = mysql.format(sqlSearch, [username])
+        postcode = req.body.postcode;
 
-            //query db
-            connection.query (search_query, async (err, result) => 
-            {
-                connection.release()                
-                if (err) throw (err)
-                //if no results
-                if (result.length == 0) 
-                {
-                    console.log("-> User does not exist")
-                    res.status(404).send("User does not exist");
-                } 
-                else 
-                {
-                    //if there is a result
-                    const hashedPassword = result[0].password
+        const sqlSearch = "SELECT * FROM users WHERE username = ?";
+        const params = [username]
+        const formatted_query = mysql.format(sqlSearch, params);
+        const resultSearch = await runDBCommand(formatted_query);
+        if (resultSearch.length == 0) {
+            console.log("-> User does not exist");
+            res.status(404).send("Username does not exist");
+        }
+        else {
+            //if there is a result
+            const hashedPassword = resultSearch[0].password
+            //get the hashedPassword from result
+            if (bcrypt.compare(password, hashedPassword)) {
+                console.log("-> Updating user.");
+                //get the hashedPassword from result 
+                const sqlUpdate = "Update users set email = ?, mobile = ? , postcode = ? where username = ?"
+                const params = [email, mobile, postcode, username]
+                const formatted_query = mysql.format(sqlUpdate, params);
+                const resultUpdate = await runDBCommand(formatted_query);
 
-                    //get the hashedPassword from result
-                                          
-                        connection.query ('Update users set email = ?, mobile = ? , postcode = ? where username = ?', [email, mobile, postcode , username], async (err, result) => 
-                        {
-                            connection.release()                            
-                            if (err) throw (err)
-                            //if no results
-                            if (result.length == 0) 
-                            {
-                                console.log("-> Error updating user.")
-                                res.status(404).send("Error updating user");
-                            } 
-                            else 
-                            {
-                                res.status(200).send("User info updated seccessfully");
-                            }
-                        }) 
+                if (resultUpdate.length == 0) {
+                    console.log("-> Error updating user")
+                    res.status(404).send("Error updating user");
                 }
-            })
-        }) 
-                
-    } catch (err) {
+                else {
+                    res.status(200).send("User updated seccessfully");
+
+                }
+
+            }
+        }
+    }
+    catch (err) {
+        console.log("error:", err);
         if (!err.statusCode) {
-          err.statusCode = 500;
+            err.statusCode = 500;
         }
         next(err);
-      }
+    }
 }
