@@ -29,20 +29,6 @@ from prettytable import PrettyTable
 
 import sys
 
-# Sample file out of the dataset
-PyTesLoc = sys.argv[1]
-FileNameLoc = sys.argv[2]
-UserID = sys.argv[3]
-
-#pytesseract.pytesseract.tesseract_cmd = 'Tesseract-OCR/tesseract.exe'
-# Sample file out of the dataset
-#file_name = '../uploads/wxwg74gj02831.jpg'
-pytesseract.pytesseract.tesseract_cmd = PyTesLoc
-file_name = FileNameLoc
-
-img = Image.open(file_name)
-img.thumbnail((800,800), Image.ANTIALIAS)
-img
 
 def opencv_resize(image, ratio):
     width = int(image.shape[1] * ratio)
@@ -58,56 +44,36 @@ def plot_gray(image):
     plt.figure(figsize=(16,10))
     return plt.imshow(image, cmap='Greys_r')
 
-image = cv2.imread(file_name)
-# Downscale image as finding receipt contour is more efficient on a small image
-resize_ratio = 500 / image.shape[0]
-original = image.copy()
-image = opencv_resize(image, resize_ratio)
-
-# Convert to grayscale for further processing
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-plot_gray(gray)
-
-# Get rid of noise with Gaussian Blur filter
-blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-plot_gray(blurred)
-
-# Detect white regions
-rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
-dilated = cv2.dilate(blurred, rectKernel)
-plot_gray(dilated)
-
-edged = cv2.Canny(dilated, 100, 200, apertureSize=3)
-plot_gray(edged)
-
-# Detect all contours in Canny-edged image
-contours, hierarchy = cv2.findContours(edged, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-image_with_contours = cv2.drawContours(image.copy(), contours, -1, (0,255,0), 3)
-plot_rgb(image_with_contours)
-
-# Get 10 largest contours
-largest_contours = sorted(contours, key = cv2.contourArea, reverse = True)[:10]
-image_with_largest_contours = cv2.drawContours(image.copy(), largest_contours, -1, (0,255,0), 3)
-plot_rgb(image_with_largest_contours)
-
-# approximate the contour by a more primitive polygon shape
 def approximate_contour(contour):
     peri = cv2.arcLength(contour, True)
     return cv2.approxPolyDP(contour, 0.032 * peri, True)
 
-def get_receipt_contour(contours):    
+def get_receipt_contour(contours):
     # loop over the contours
+    approx_list = []
     for c in contours:
         approx = approximate_contour(c)
         # if our approximated contour has four points, we can assume it is receipt's rectangle
-        if len(approx) == 4:
-            return approx
+        if len(approx) >=1:
+            try:
+                approx_list.append((len(approx),approx,  cv2.contourArea(c)))
+                print(approx.size)
+            except:
+                continue
+    if len(approx_list) == 0:
+        return []
+    # find rect
+    rect_approx = [item for item in approx_list if (item[0] == 4) and (item[1].size %4 == 0)]
+    if len(rect_approx) > 0:
+        return rect_approx
+        # rect_approx_area = max(rect_approx,key=lambda item:item[2])
+        # return (rect_approx_area)[1]
+    # else not rect
+    # to-do
+    #max_approx = max(approx_list,key=lambda item:item[0])
+    return []
+    #otherwise
 
-get_receipt_contour(largest_contours)
-
-receipt_contour = get_receipt_contour(largest_contours)
-image_with_receipt_contour = cv2.drawContours(image.copy(), [receipt_contour], -1, (0, 255, 0), 2)
-plot_rgb(image_with_receipt_contour)
 
 def contour_to_rect(contour):
     pts = contour.reshape(4, 2)
@@ -118,7 +84,7 @@ def contour_to_rect(contour):
     rect[0] = pts[np.argmin(s)]
     rect[2] = pts[np.argmax(s)]
     # compute the difference between the points:
-    # the top-right will have the minumum difference 
+    # the top-right will have the minumum difference
     # the bottom-left will have the maximum difference
     diff = np.diff(pts, axis = 1)
     rect[1] = pts[np.argmin(diff)]
@@ -149,52 +115,6 @@ def wrap_perspective(img, rect):
     # warp the perspective to grab the screen
     return cv2.warpPerspective(img, M, (maxWidth, maxHeight))
 
-scanned = wrap_perspective(original.copy(), contour_to_rect(receipt_contour))
-plt.figure(figsize=(16,10))
-plt.imshow(scanned)
-
-def bw_scanner(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    T = threshold_local(gray, 21, offset = 5, method = "gaussian")
-    return (gray > T).astype("uint8") * 255
-
-result = bw_scanner(scanned)
-image = bw_scanner(scanned)
-plot_gray(result)
-
-output = Image.fromarray(result)
-#output.save('result.png')
-
-d = pytesseract.image_to_data(image, output_type=Output.DICT)
-n_boxes = len(d['level'])
-boxes = cv2.cvtColor(image.copy(), cv2.COLOR_BGR2RGB)
-for i in range(n_boxes):
-    (x, y, w, h) = (d['left'][i], d['top'][i], d['width'][i], d['height'][i])    
-    boxes = cv2.rectangle(boxes, (x, y), (x + w, y + h), (0, 255, 0), 2)
-    
-plot_rgb(boxes)
-
-extracted_text = pytesseract.image_to_string(image)
-print(extracted_text)
-
-listword1 = ['woolworth', 'WOOLWORTH', 'Woolworth']
-listword2 = ['coles', 'COLES', 'Coles']
-if any(re.search(r'\b{}\b'.format(re.escape(word)), extracted_text) for word in listword1):
-    Supermarket = 'Woolworths'
-elif any(re.search(r'\b{}\b'.format(re.escape(word)), extracted_text) for word in listword2):
-    Supermarket = 'Coles'
-else:
-    Supermarket = ''
-      
-
-print(Supermarket)
-
-from datetime import datetime
-
-match = re.search(r'\d{2}/\d{2}/\d{4}', extracted_text)
-date = datetime.strptime(match.group(), '%d/%m/%Y').date()
-print(date)
-
 def find_between( s, first, last ):
     try:
         start = s.index( first ) + len( first )
@@ -210,164 +130,250 @@ def find_between_r( s, first, last ):
         return s[start:end]
     except ValueError:
         return ""
+def bw_scanner(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    T = threshold_local(gray, 21, offset = 5, method = "gaussian")
+    return (gray > T).astype("uint8") * 255
 
-#Store
-StoreN = find_between( extracted_text, "Store: ", ";" )
-print(StoreN)
+# pre_processing
+def image_pre_processing(image):
+    #Downscale image as finding receipt contour is more efficient on a small image
+    resize_ratio = 500 / image.shape[0]
+    original = image.copy()
+    image = opencv_resize(original, resize_ratio)
+    # Convert to grayscale for further processing
+    gray = cv2.cvtColor(original, cv2.COLOR_BGR2GRAY)
+    # Get rid of noise with Gaussian Blur filter
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    return blurred
 
-#Receipt ID
-Receipt_ID = find_between( extracted_text, "Receipt: ", "Date:" )
-print(Receipt_ID)
+# Sample file out of the dataset
+PyTesLoc = sys.argv[1]
+FileNameLoc = sys.argv[2]
+UserID = '1234' #sys.argv[3]
 
-#Product descriptions and prices
-desc = find_between( extracted_text, "scription ", "EFT" )
+#load pytesseract
+pytesseract.pytesseract.tesseract_cmd = PyTesLoc
+file_name = FileNameLoc
+# orginal = Image.open(file_name)
+# orginal.thumbnail((800,800), Image.ANTIALIAS)
+orginal = cv2.imread(file_name)
+# pre-processing
+image = image_pre_processing(orginal)
+# save image
+output_processed = Image.fromarray(image)
+output_processed.save('./uploads/result_processed.png')
 
-#desc = find_between( desc, ";","Total" )
-print(desc)
+# find Contours
+ # Detect all contours in Canny-edged image
+#Detect white regions not correct results: become black
+rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+dilated = cv2.dilate(image, rectKernel)
+edged = cv2.Canny(dilated, 100, 200, apertureSize=3)
+ret, threshold = cv2.threshold(image, 127, 255, 0)
+contours, hierarchy = cv2.findContours(threshold, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+len_countrs  = min(len(contours), 10)
+largest_contours = sorted(contours, key = cv2.contourArea, reverse = True)[:len_countrs]
+output = cv2.drawContours(image.copy(), largest_contours, -1, (0, 255, 0), 2)
+output = Image.fromarray(output)
+output.save('./uploads/result_Contours.png')
 
-#extracting grand total
-def find_amounts(text):
-    amounts = re.findall(r'\d+\.\d{2}\b', text)
-    floats = [float(amount) for amount in amounts]
-    unique = list(dict.fromkeys(floats))
-    return unique
+# load and scan image
+scanned = bw_scanner(orginal)
+output = Image.fromarray(scanned)
+output.save('./uploads/result_scanned.png')
 
-amounts = find_amounts(extracted_text)
-amounts
+#read data
+d = pytesseract.image_to_data(output_processed)
+print(d['level'])
+n_boxes = len(d['level'])
+boxes = cv2.cvtColor(output_processed.copy(), cv2.COLOR_BGR2RGB)
+for i in range(n_boxes):
+    (x, y, w, h) = (d['left'][i], d['top'][i], d['width'][i], d['height'][i])
+    boxes = cv2.rectangle(boxes, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-max(amounts)
+# extracted_text = pytesseract.image_to_string(img)
+# print(extracted_text)
+# Supermarket= "None"
+# listword1 = ['woolworth', 'WOOLWORTH', 'Woolworth']
+# listword2 = ['coles', 'COLES', 'Coles']
+# if any(re.search(r'\b{}\b'.format(re.escape(word)), extracted_text) for word in listword1):
+#     Supermarket = 'Woolworths'
 
-#Lines to excluse on the receipt
-exclusion_list = ["bank", "total", "promo", "vat", "change", "recyclable"]
+# print(Supermarket)
 
-#Words to ommit
-remove_list = ["vit", "etc"]
+# elif any(re.search(r'\b{}\b'.format(re.escape(word)), extracted_text) for word in listword2):
+#     Supermarket = 'Coles'
+# else:
+#     Supermarket = ''
 
-#Extract letters and numbers regex
-regex_line = []
-for line in desc.splitlines():
-    if re.search(r".[0-9]|[0-9]*\.[0-9]|[0-9]*\,[0-9]", line):
-        regex_line.append(line)
-print(regex_line)
+# print(Supermarket)
 
-#Apply exclusion list
-food_item = []
-for eachLine in regex_line:
-    found = False
-    for exclude in exclusion_list:
-        if exclude in eachLine.lower():
-            found = True
-        
-    if found == False:
-        food_item.append(eachLine)
-print(food_item)
+# from datetime import datetime
 
-#Word ommit
-new_food_item_list = []
-for item in food_item:
-    for subToRemove in remove_list:
-        item = item.replace(subToRemove, "")
-        item = item.replace(subToRemove.upper(), "")
-    new_food_item_list.append(item)
-print(new_food_item_list)
+# match = re.search(r'\d{2}/\d{2}/\d{4}', extracted_text)
+# date = datetime.strptime(match.group(), '%d/%m/%Y').date()
+# print(date)
 
-#Food item cost regex
-food_item_cost = []
-for line in new_food_item_list:
-    line = line.replace(",", ".")
-    cost = re.findall('\d*\.?\d+|\d*\,?\d+|',line)
-    
-    for possibleCost in cost:
-        if "." in possibleCost:
-            food_item_cost.append(possibleCost)
-print(new_food_item_list)
 
-#Remove cost price from food item
-count = 0;
-only_food_items = []
-for item in new_food_item_list:
-    only_alpha = ""
-    for char in item:
-        if char.isalpha() or char.isspace():
-            only_alpha += char
-            
-    only_alpha = re.sub(r'(?:^| )\w(?:$| )', ' ', only_alpha).strip()
-    only_food_items.append(only_alpha)
-print(only_food_items)
+# #Store
+# StoreN = find_between( extracted_text, "Store: ", ";" )
+# print(StoreN)
 
-#Removes 2 letter words from food item
-#No core food item has two letters (Most cases)
-food = []
-for item in only_food_items:
-    # getting splits
-    temp = item.split()
+# #Receipt ID
+# Receipt_ID = find_between( extracted_text, "Receipt: ", "Date:" )
+# print(Receipt_ID)
 
-    # omitting K lengths
-    res = [ele for ele in temp if len(ele) != 2]
+# #Product descriptions and prices
+# desc = find_between( extracted_text, "scription ", "EFT" )
 
-    # joining result
-    res = ' '.join(res)
-    
-    food.append(res)
-print(food)
+# #desc = find_between( desc, ";","Total" )
+# print(desc)
 
-unwanted = {"EACH","GRAM","NET","eer"}
- 
-food = [ele for ele in food if ele not in unwanted]
-food = [x for x in food if "BETTER BAG" not in x]
+# #extracting grand total
+# def find_amounts(text):
+#     amounts = re.findall(r'\d+\.\d{2}\b', text)
+#     floats = [float(amount) for amount in amounts]
+#     unique = list(dict.fromkeys(floats))
+#     return unique
 
-print(food)
+# amounts = find_amounts(extracted_text)
+# amounts
 
-#Tabulate Food Item and Cost
-t = PrettyTable(['Food Item', 'Cost'])
-for counter in range (0,len(food)):
-    t.add_row([food[counter], food_item_cost[counter]])
-print(t)
+# max(amounts)
 
-import pandas as pd
-df = pd.DataFrame(food, columns=['food'])
-df1 = pd.DataFrame(food_item_cost, columns=['Cost'])
+# #Lines to excluse on the receipt
+# exclusion_list = ["bank", "total", "promo", "vat", "change", "recyclable"]
 
-df2 = pd.concat([df, df1], axis=1)
-df2['Receipt_ID'] = Receipt_ID
-df2['Supermarket'] = Supermarket
-df2['date'] = date
-df2['Store'] = StoreN
-df2['Processed'] = 0
-df2.dropna(inplace=True)
-df2['UserID'] = UserID
-df2['StoreID'] = ''
-df2.head(15)
+# #Words to ommit
+# remove_list = ["vit", "etc"]
 
-import mysql.connector
-import pymysql
-from sqlalchemy import create_engine
+# #Extract letters and numbers regex
+# regex_line = []
+# for line in desc.splitlines():
+#     if re.search(r".[0-9]|[0-9]*\.[0-9]|[0-9]*\,[0-9]", line):
+#         regex_line.append(line)
+# print(regex_line)
 
-#engine = create_engine('mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}', echo=False)
-con = create_engine('mysql+pymysql://discountmateuser:DMPassword$@discountmate.ddns.net/discountmate')
+# #Apply exclusion list
+# food_item = []
+# for eachLine in regex_line:
+#     found = False
+#     for exclude in exclusion_list:
+#         if exclude in eachLine.lower():
+#             found = True
 
-store = pd.read_sql('SELECT * FROM shops', con=con)
-store.head(10)
+#     if found == False:
+#         food_item.append(eachLine)
+# print(food_item)
 
-StoreID = ''
-if store['address'].str.contains(StoreN).any():
-    StoreID = store.loc[store['address'] == StoreN, 'id'].iloc[0]  
-    
-print(StoreID)
+# #Word ommit
+# new_food_item_list = []
+# for item in food_item:
+#     for subToRemove in remove_list:
+#         item = item.replace(subToRemove, "")
+#         item = item.replace(subToRemove.upper(), "")
+#     new_food_item_list.append(item)
+# print(new_food_item_list)
 
-max_value = ''
-if StoreID == '':
-  column = store["id"]
-  max_value = column.max()
-  StoreID = max_value + 1
-  data = [{'id':StoreID,'name':Supermarket,'address':StoreN,'postcode':'2000'}]
-  store = store.append(data,ignore_index=True,sort=False)
+# #Food item cost regex
+# food_item_cost = []
+# for line in new_food_item_list:
+#     line = line.replace(",", ".")
+#     cost = re.findall('\d*\.?\d+|\d*\,?\d+|',line)
 
-df2['StoreID'] = StoreID
+#     for possibleCost in cost:
+#         if "." in possibleCost:
+#             food_item_cost.append(possibleCost)
+# print(new_food_item_list)
 
-#store.to_sql("shops",con=con,index=False,if_exists="replace")
+# #Remove cost price from food item
+# count = 0
+# only_food_items = []
+# for item in new_food_item_list:
+#     only_alpha = ""
+#     for char in item:
+#         if char.isalpha() or char.isspace():
+#             only_alpha += char
 
-df2.head(16)
+#     only_alpha = re.sub(r'(?:^| )\w(?:$| )', ' ', only_alpha).strip()
+#     only_food_items.append(only_alpha)
+# print(only_food_items)
 
-df2.to_sql("OCRTable",con=con,index=False,if_exists="append")
+# #Removes 2 letter words from food item
+# #No core food item has two letters (Most cases)
+# food = []
+# for item in only_food_items:
+#     # getting splits
+#     temp = item.split()
+
+#     # omitting K lengths
+#     res = [ele for ele in temp if len(ele) != 2]
+
+#     # joining result
+#     res = ' '.join(res)
+
+#     food.append(res)
+# print(food)
+
+# unwanted = {"EACH","GRAM","NET","eer"}
+
+# food = [ele for ele in food if ele not in unwanted]
+# food = [x for x in food if "BETTER BAG" not in x]
+
+# print(food)
+
+# #Tabulate Food Item and Cost
+# t = PrettyTable(['Food Item', 'Cost'])
+
+# for counter in range (0,len(food)):
+#     t.add_row([food[counter], food_item_cost[counter]])
+# print(t)
+
+# import pandas as pd
+# df = pd.DataFrame(food, columns=['food'])
+# df1 = pd.DataFrame(food_item_cost, columns=['Cost'])
+
+# df2 = pd.concat([df, df1], axis=1)
+# df2['Receipt_ID'] = Receipt_ID
+# df2['Supermarket'] = Supermarket
+# df2['date'] = date
+# df2['Store'] = StoreN
+# df2['Processed'] = 0
+# df2.dropna(inplace=True)
+# df2['UserID'] = UserID
+# df2['StoreID'] = ''
+# df2.head(15)
+
+# import mysql.connector
+# import pymysql
+# from sqlalchemy import create_engine
+
+# #engine = create_engine('mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}', echo=False)
+# con = create_engine('mysql+pymysql://discountmateuser:DMPassword$@127.0.0.1/discountmate')
+
+# store = pd.read_sql('SELECT * FROM shops', con=con)
+# store.head(10)
+
+# StoreID = ''
+# # if store['address'].str.contains(StoreN).any():
+# #     StoreID = store.loc[store['address'] == StoreN, 'id'].iloc[0]
+
+# print(StoreID)
+
+# max_value = ''
+# if StoreID == '':
+#   column = store["id"]
+#   max_value = column.max()
+#   StoreID = max_value + 1
+#   data = [{'id':StoreID,'name':Supermarket,'address':StoreN,'postcode':'2000'}]
+#   store = store.append(data,ignore_index=True,sort=False)
+
+# df2['StoreID'] = StoreID
+
+# #store.to_sql("shops",con=con,index=False,if_exists="replace")
+
+# df2.head(16)
+
+# df2.to_sql("OCRTable",con=con,index=False,if_exists="append")
 
