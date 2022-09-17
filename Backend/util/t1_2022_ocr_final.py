@@ -28,7 +28,7 @@ from pytesseract import Output
 from prettytable import PrettyTable
 
 import sys
-
+#from unidecode import unidecode
 
 def opencv_resize(image, ratio):
     width = int(image.shape[1] * ratio)
@@ -36,44 +36,35 @@ def opencv_resize(image, ratio):
     dim = (width, height)
     return cv2.resize(image, dim, interpolation = cv2.INTER_AREA)
 
-def plot_rgb(image):
-    plt.figure(figsize=(16,10))
-    return plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-
-def plot_gray(image):
-    plt.figure(figsize=(16,10))
-    return plt.imshow(image, cmap='Greys_r')
-
 def approximate_contour(contour):
     peri = cv2.arcLength(contour, True)
     return cv2.approxPolyDP(contour, 0.032 * peri, True)
 
-def get_receipt_contour(contours):
+def get_receipt_contour(contours):    
     # loop over the contours
-    approx_list = []
-    for c in contours:
-        approx = approximate_contour(c)
+    approx_list = []   
+    for c in contours:  
+        approx = approximate_contour(c) 
         # if our approximated contour has four points, we can assume it is receipt's rectangle
         if len(approx) >=1:
             try:
-                approx_list.append((len(approx),approx,  cv2.contourArea(c)))
-                print(approx.size)
+                approx_list.append((len(approx),approx,  cv2.contourArea(c)))  
             except:
                 continue
     if len(approx_list) == 0:
         return []
     # find rect
-    rect_approx = [item for item in approx_list if (item[0] == 4) and (item[1].size %4 == 0)]
+    rect_approx = [item[1] for item in approx_list if (item[0] == 4) and (item[1].size %4 == 0)]
     if len(rect_approx) > 0:
         return rect_approx
-        # rect_approx_area = max(rect_approx,key=lambda item:item[2])
-        # return (rect_approx_area)[1]
-    # else not rect
-    # to-do
-    #max_approx = max(approx_list,key=lambda item:item[0])
+        #rect_approx_area = max(rect_approx,key=lambda item:item[2])
+        #return rect_approx_area # (rect_approx_area)[1]  
+    # else not rect  
+    # to-do 
+    #max_approx = max(approx_list,key=lambda item:item[0])  
     return []
-    #otherwise
-
+    #otherwise            
+    
 
 def contour_to_rect(contour):
     pts = contour.reshape(4, 2)
@@ -84,12 +75,12 @@ def contour_to_rect(contour):
     rect[0] = pts[np.argmin(s)]
     rect[2] = pts[np.argmax(s)]
     # compute the difference between the points:
-    # the top-right will have the minumum difference
+    # the top-right will have the minumum difference 
     # the bottom-left will have the maximum difference
     diff = np.diff(pts, axis = 1)
     rect[1] = pts[np.argmin(diff)]
     rect[3] = pts[np.argmax(diff)]
-    return rect / resize_ratio
+    return rect
 
 def wrap_perspective(img, rect):
     # unpack rectangle points: top left, top right, bottom right, bottom left
@@ -130,22 +121,22 @@ def find_between_r( s, first, last ):
         return s[start:end]
     except ValueError:
         return ""
+
 def bw_scanner(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     T = threshold_local(gray, 21, offset = 5, method = "gaussian")
     return (gray > T).astype("uint8") * 255
 
-# pre_processing
-def image_pre_processing(image):
-    #Downscale image as finding receipt contour is more efficient on a small image
-    resize_ratio = 500 / image.shape[0]
-    original = image.copy()
-    image = opencv_resize(original, resize_ratio)
+# pre_processing 
+def image_pre_processing(image): 
     # Convert to grayscale for further processing
-    gray = cv2.cvtColor(original, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # Get rid of noise with Gaussian Blur filter
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    return blurred
+    blurred = cv2.GaussianBlur(gray, (3, 3), 0) 
+    threshold = cv2.adaptiveThreshold(blurred, 255,cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 21, 10)
+    #threshold = cv2.adaptiveThreshold(threshold, 255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 21, 10)
+    #ret, threshold = cv2.threshold(blurred,127, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU) 
+    return threshold
 
 # Sample file out of the dataset
 PyTesLoc = sys.argv[1]
@@ -155,45 +146,54 @@ UserID = '1234' #sys.argv[3]
 #load pytesseract
 pytesseract.pytesseract.tesseract_cmd = PyTesLoc
 file_name = FileNameLoc
-# orginal = Image.open(file_name)
-# orginal.thumbnail((800,800), Image.ANTIALIAS)
-orginal = cv2.imread(file_name)
-# pre-processing
-image = image_pre_processing(orginal)
+
+image = cv2.imread(file_name)
+# Downscale image as finding receipt contour is more efficient on a small image
+resize_ratio = 500 / image.shape[0]
+original = image.copy()  
+image_pre_processed = image_pre_processing(image) 
 # save image
-output_processed = Image.fromarray(image)
-output_processed.save('./uploads/result_processed.png')
+output_processed = Image.fromarray(image_pre_processed)
+output_processed.save('./uploads/result_processed.png')   
+extracted_text = pytesseract.image_to_string(image_pre_processed)
+print (extracted_text.encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding))
+# contours, hierarchy = cv2.findContours(threshold, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+# len_countrs  = min(len(contours), 10)
+# largest_contours = sorted(contours, key = cv2.contourArea, reverse = True)[:len_countrs] 
+# receipt_contour = get_receipt_contour(largest_contours) 
+# for c in receipt_contour:
+#     print(cv2.contourArea(c)) 
+ 
+# image_copy = original.copy()
+# output = cv2.drawContours(image_copy, receipt_contour, -1, (0, 255, 0), 2)
+# output = Image.fromarray(image_copy)
+# output.save('./uploads/result_Contours.png')  
 
-# find Contours
- # Detect all contours in Canny-edged image
-#Detect white regions not correct results: become black
-rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
-dilated = cv2.dilate(image, rectKernel)
-edged = cv2.Canny(dilated, 100, 200, apertureSize=3)
-ret, threshold = cv2.threshold(image, 127, 255, 0)
-contours, hierarchy = cv2.findContours(threshold, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-len_countrs  = min(len(contours), 10)
-largest_contours = sorted(contours, key = cv2.contourArea, reverse = True)[:len_countrs]
-output = cv2.drawContours(image.copy(), largest_contours, -1, (0, 255, 0), 2)
-output = Image.fromarray(output)
-output.save('./uploads/result_Contours.png')
-
-# load and scan image
-scanned = bw_scanner(orginal)
-output = Image.fromarray(scanned)
-output.save('./uploads/result_scanned.png')
-
-#read data
-d = pytesseract.image_to_data(output_processed)
-print(d['level'])
-n_boxes = len(d['level'])
-boxes = cv2.cvtColor(output_processed.copy(), cv2.COLOR_BGR2RGB)
-for i in range(n_boxes):
-    (x, y, w, h) = (d['left'][i], d['top'][i], d['width'][i], d['height'][i])
-    boxes = cv2.rectangle(boxes, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-# extracted_text = pytesseract.image_to_string(img)
+# scanned = wrap_perspective(output, contour_to_rect(receipt_contour[1]))
+# #already gray
+# scanned = bw_scanner(scanned)
+# output = Image.fromarray(scanned)
+# output.save('./uploads/result_scanned.png')  
+# extracted_text = pytesseract.image_to_string(output)
+# extracted_text = extracted_text.encode(sys.stdout.encoding, errors='replace')
 # print(extracted_text)
+
+#  
+# By default OpenCV stores images in BGR format and since pytesseract assumes RGB format,
+# we need to convert from BGR to RGB format/mode:
+# image = cv2.imread('./uploads/result_Contours.png')
+# img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+#print(pytesseract.image_to_string(img_rgb))
+# OR
+# img_rgb = Image.frombytes('RGB', image.shape[:2], image, 'raw', 'BGR', 0, 0)
+# print (pytesseract.image_to_string(img_rgb).encode(sys.stdout.encoding, errors='replace'))
+#print(pytesseract.image_to_string(img_rgb))
+#print("Process lines, file_name command_line %s\n"% pytesseract.image_to_string(img_rgb).encode('utf-8'))  
+
+
+
+
+#print(extracted_text)
 # Supermarket= "None"
 # listword1 = ['woolworth', 'WOOLWORTH', 'Woolworth']
 # listword2 = ['coles', 'COLES', 'Coles']
@@ -206,7 +206,7 @@ for i in range(n_boxes):
 #     Supermarket = 'Coles'
 # else:
 #     Supermarket = ''
-
+      
 # print(Supermarket)
 
 # from datetime import datetime
@@ -262,7 +262,7 @@ for i in range(n_boxes):
 #     for exclude in exclusion_list:
 #         if exclude in eachLine.lower():
 #             found = True
-
+        
 #     if found == False:
 #         food_item.append(eachLine)
 # print(food_item)
@@ -281,7 +281,7 @@ for i in range(n_boxes):
 # for line in new_food_item_list:
 #     line = line.replace(",", ".")
 #     cost = re.findall('\d*\.?\d+|\d*\,?\d+|',line)
-
+    
 #     for possibleCost in cost:
 #         if "." in possibleCost:
 #             food_item_cost.append(possibleCost)
@@ -295,7 +295,7 @@ for i in range(n_boxes):
 #     for char in item:
 #         if char.isalpha() or char.isspace():
 #             only_alpha += char
-
+            
 #     only_alpha = re.sub(r'(?:^| )\w(?:$| )', ' ', only_alpha).strip()
 #     only_food_items.append(only_alpha)
 # print(only_food_items)
@@ -312,12 +312,12 @@ for i in range(n_boxes):
 
 #     # joining result
 #     res = ' '.join(res)
-
+    
 #     food.append(res)
 # print(food)
 
 # unwanted = {"EACH","GRAM","NET","eer"}
-
+ 
 # food = [ele for ele in food if ele not in unwanted]
 # food = [x for x in food if "BETTER BAG" not in x]
 
@@ -357,8 +357,8 @@ for i in range(n_boxes):
 
 # StoreID = ''
 # # if store['address'].str.contains(StoreN).any():
-# #     StoreID = store.loc[store['address'] == StoreN, 'id'].iloc[0]
-
+# #     StoreID = store.loc[store['address'] == StoreN, 'id'].iloc[0]  
+    
 # print(StoreID)
 
 # max_value = ''
