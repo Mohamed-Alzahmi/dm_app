@@ -1,7 +1,7 @@
 //use express
 const express = require('express');
 const router = express.Router();
-
+const authToken = require("../util/authenticateToken"); //used for login token
 //controller
 const itemController = require('../controllers/item');
 const item = require('../models/item');
@@ -43,13 +43,13 @@ async function getRecommendedItems(res)
 router.get('/', itemController.getAllItems)
 
 //post shop
-router.post('/', itemController.postItem);
+router.post('/', authToken, itemController.postItem);
 
 //put request
-router.put('/', itemController.putItem);
+router.put('/', authToken, itemController.putItem);
 
 //get recommended items
-router.get('/recommend', (req, res, next) => {
+router.get('/recommend',authToken, (req, res, next) => {
     try
     {
         getRecommendedItems(res);
@@ -62,7 +62,7 @@ router.get('/recommend', (req, res, next) => {
 });
 
 //search get request
-router.get('/search?', itemController.searchItems)
+router.get('/search?', authToken, itemController.searchItems)
 
 //export router
 module.exports = router;

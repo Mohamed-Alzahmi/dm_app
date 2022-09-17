@@ -2,10 +2,10 @@
 const express = require('express');
 const router = express.Router();
 var receiptModel = require('../models/receipt');
-
+const authToken = require("../util/authenticateToken"); //used for login token
 
 //get request for the receipt upload, shows the index.ejs debug page for now.
-router.get('/', (req, res) => {
+router.get('/', authToken, (req, res) => {
     //use mongoose to define shema
     receiptModel.find({}, (err, items) => {
         if (err) {
@@ -19,7 +19,7 @@ router.get('/', (req, res) => {
 });
 
 //post an ID to get the corresponding image converted from binary to base64
-router.post('/', (req, res) => {
+router.post('/',authToken, (req, res) => {
     receiptModel.findById(req.body.id, function (err, docs) {
         if (err){
             console.log(err);

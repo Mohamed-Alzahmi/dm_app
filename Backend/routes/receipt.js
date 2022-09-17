@@ -10,6 +10,7 @@ const path = require('path');
 const mysql = require('mysql2'); //used for mysql calls
 const config = require('../config/config.json'); //used to get db details
 require("dotenv").config(); //used to access the .env file easily
+const authToken = require("../util/authenticateToken"); //used for login token
 
 //spawn the python process
 const {spawn} = require('child_process');
@@ -26,7 +27,7 @@ const db = mysql.createPool({
 });
 
 //get request for the receipt upload, shows the index.ejs debug page for now.
-router.get('/', (req, res) => {
+router.get('/', authToken, (req, res) => {
     //use mongoose to define shema
     receiptModel.find({}, (err, items) => {
         if (err) {
@@ -380,8 +381,9 @@ router.post('/', upload.single('image'), (req, res, next) => {
                 pythonOptions: ['-u'], // get py console output in real time
                 pythonPath: 'python',
 
-                //replace this line with your tesseract folder
-                args: ['C:/Users/Joel/Desktop/DiscountMate/Tesseract-OCR/tesseract.exe', WriteFilePath, userID]
+                //replace this line with your tesseract folder                
+                args: ['C:/Users/61416/Desktop/Tesseract-OCR/tesseract.exe', WriteFilePath, userID]
+                //args: ['C:/Users/Joel/Desktop/DiscountMate/Tesseract-OCR/tesseract.exe', WriteFilePath, userID]
             }
             
             PythonShell.run('./util/t1_2022_ocr_final.py', options, function (err, results) {

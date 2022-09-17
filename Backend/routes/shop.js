@@ -1,22 +1,24 @@
 //use express
 const express = require('express');
+const authToken = require("../util/authenticateToken"); //used for login token
 const router = express.Router();
+
 
 //controller
 const shopController = require('../controllers/shop');
 const shop = require('../models/shop');
 
 //get request
-router.get('/', shopController.getAllShops)
+router.get('/',authToken, shopController.getAllShops)
 
 //post shop
-router.post('/', shopController.postShop);
+router.post('/', authToken, shopController.postShop);
 
 //put request
-router.put('/', shopController.putShop);
+router.put('/', authToken, shopController.putShop);
 
 //shop get search
-router.get('/search', shopController.searchShops);
+router.get('/search', authToken, shopController.searchShops);
 
 //export router
 module.exports = router;
